@@ -1,0 +1,115 @@
+version: "3.5"
+volumes:
+    mongodb:
+networks:
+  bridge_network:
+    driver: bridge
+services:
+    nosql-db:
+        image: mongo
+        ports:
+            - "27017:27017"
+        networks:
+            - bridge_network
+        container_name: nosql-db
+        volumes:
+            - mongodb:/data/db
+        healthcheck:
+            test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017 --quiet
+            interval: 10s
+            retries: 5
+            start_period: 40s
+            timeout: 30s
+  
+    tweet:
+        image: 210220698087.dkr.ecr.ap-southeast-1.amazonaws.com/tavitter:tweet
+        container_name: tweet
+        ports:
+            - "8003:8003"
+        networks:
+            - bridge_network
+        depends_on:
+            - "nosql-db"
+        env_file:
+            - ./tweet/.env.dev
+        deploy:
+            x-aws-autoscaling:
+                min: 3
+                max: 10
+                cpu: 75  
+        healthcheck:
+            test: curl --fail localhost:8003/whoami || exit 1
+            interval: 10s
+            retries: 5
+            timeout: 30s
+      
+    user:
+        image: 210220698087.dkr.ecr.ap-southeast-1.amazonaws.com/tavitter:user
+        container_name: user
+        ports:
+            - "8001:8001"
+        networks:
+            - bridge_network
+        depends_on:
+            - "nosql-db"
+        env_file:
+            - ./user/.env.dev
+        deploy:
+            x-aws-autoscaling:
+                min: 3
+                max: 10
+                cpu: 75  
+        healthcheck:
+            test: curl --fail localhost:8001/whoami || exit 1
+            interval: 10s
+            retries: 5
+            timeout: 30s
+      
+    proxy:
+        image: 210220698087.dkr.ecr.ap-southeast-1.amazonaws.com/tavitter:proxy
+        depends_on:
+            - tweet
+            - user
+        ports:
+            - 80:80
+        networks:
+            - bridge_network
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 2Gb
+            x-aws-autoscaling:
+                min: 3
+                max: 10
+                cpu: 75
+        healthcheck:
+            test: service nginx status || exit 1
+            interval: 10s
+            retries: 5
+            timeout: 30s
+   
+    front:
+        image: 210220698087.dkr.ecr.ap-southeast-1.amazonaws.com/tavitter:front
+        container_name: front
+        ports:
+          - "3000:3000"
+        networks:
+            - bridge_network
+        depends_on:
+          - tweet
+          - user
+        deploy:
+            resources:
+                limits:
+                    cpus: '0.5'
+                    memory: 2Gb
+            x-aws-autoscaling:
+                min: 3
+                max: 10
+                cpu: 75
+        healthcheck:
+            test: echo 0
+            interval: 10s
+            retries: 5
+            timeout: 30s
